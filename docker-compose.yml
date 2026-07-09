@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  vpn-authd:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: vpn-authd
+    # 极度推荐使用 host 网络模式，这样能最大化 WireGuard 的 UDP 性能，并免去在容器内外做双重 NAT 的麻烦
+    network_mode: "host"
+    # 操作 Linux 内核网卡和路由必需的权限
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    # 如果遇到权限问题，可以暴力点开启 privileged: true
+    # privileged: true
+    volumes:
+      # 挂载主配置文件和数据库目录
+      - ./config:/etc/vpn-authd
+      # 挂载原生的 wireguard 配置目录 (含 wg0.conf 和密钥)
+      - ./wireguard:/etc/wireguard
+      # 挂载数据库持久化目录
+      - ./db:/var/lib/vpn-authd
+    restart: unless-stopped
