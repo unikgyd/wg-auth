@@ -1,0 +1,27 @@
+[Interface]
+# 这是服务端的 WireGuard 私钥（请使用 wg genkey 生成并替换）
+PrivateKey = <YOUR_SERVER_PRIVATE_KEY>
+
+# 隧道绑定的服务端 IP（这里的网段要涵盖你 authd.conf 里规划的动态 IP 池网段）
+# 例如 authd 动态池是 10.10.0.0/24，这里的 Address 可以写 10.10.0.1/24
+Address = 10.10.0.1/24
+
+# WireGuard 协议监听的 UDP 端口（必须在云主机面板的防火墙/安全组中放行 UDP 协议的此端口！）
+ListenPort = 65432
+
+# ==========================================
+# 下面是你传统的静态固定设备配置区
+# 这些节点完全由原生的内核接管，不受 authd 生命周期的自动清理影响，永久有效
+# 它们的 AllowedIPs 最好在 authd.conf 的 ip_pool -> exclude 中排除掉，防止 IP 冲突
+# ==========================================
+
+[Peer]
+# 你的固定节点 1 的公钥
+PublicKey = <STATIC_PEER_1_PUBLIC_KEY>
+# 允许该节点通信的 IP
+AllowedIPs = 10.10.0.2/32
+
+[Peer]
+# 你的固定节点 2 的公钥
+PublicKey = <STATIC_PEER_2_PUBLIC_KEY>
+AllowedIPs = 10.10.0.3/32

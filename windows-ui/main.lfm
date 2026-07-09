@@ -1,0 +1,102 @@
+object Form1: TForm1
+  Left = 500
+  Height = 280
+  Top = 250
+  Width = 360
+  BorderIcons = [biSystemMenu, biMinimize]
+  BorderStyle = bsSingle
+  Caption = 'Auth-WG Client'
+  ClientHeight = 280
+  ClientWidth = 360
+  OnCreate = FormCreate
+  OnCloseQuery = FormCloseQuery
+  OnDestroy = FormDestroy
+  Position = poScreenCenter
+  LCLVersion = '2.2.6.0'
+  object lblServer: TLabel
+    Left = 24
+    Height = 15
+    Top = 24
+    Width = 100
+    Caption = 'Server URL:'
+  end
+  object edtServer: TEdit
+    Left = 24
+    Height = 23
+    Top = 48
+    Width = 312
+    TabOrder = 0
+  end
+  object lblUser: TLabel
+    Left = 24
+    Height = 15
+    Top = 88
+    Width = 60
+    Caption = 'Username:'
+  end
+  object edtUser: TEdit
+    Left = 24
+    Height = 23
+    Top = 112
+    Width = 144
+    TabOrder = 1
+  end
+  object lblPass: TLabel
+    Left = 192
+    Height = 15
+    Top = 88
+    Width = 60
+    Caption = 'Password:'
+  end
+  object edtPass: TEdit
+    Left = 192
+    Height = 23
+    Top = 112
+    Width = 144
+    EchoMode = emPassword
+    PasswordChar = '*'
+    TabOrder = 2
+  end
+  object btnConnect: TButton
+    Left = 24
+    Height = 40
+    Top = 160
+    Width = 312
+    Caption = 'Connect'
+    OnClick = btnConnectClick
+    TabOrder = 3
+  end
+  object lblStatus: TLabel
+    Left = 24
+    Height = 15
+    Top = 232
+    Width = 312
+    Alignment = taCenter
+    AutoSize = False
+    Caption = 'Status: Disconnected'
+    Font.Color = clGray
+    ParentFont = False
+  end
+  object Timer1: TTimer
+    Enabled = False
+    OnTimer = Timer1Timer
+    Left = 24
+    Top = 8
+  end
+  object TrayIcon1: TTrayIcon
+    Hint = 'Auth-WG Client'
+    PopupMenu = PopupMenu1
+    Visible = True
+    OnDblClick = TrayIcon1DblClick
+    Left = 88
+    Top = 8
+  end
+  object PopupMenu1: TPopupMenu
+    Left = 152
+    Top = 8
+    object MenuItemExit: TMenuItem
+      Caption = 'Exit Auth-WG'
+      OnClick = MenuItemExitClick
+    end
+  end
+end

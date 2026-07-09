@@ -1,0 +1,43 @@
+[server]
+# 绑定的内核 WireGuard 网卡名
+wg_interface = wg-vpn
+# 原生静态配置文件的绝对路径 (在容器内)
+wg_conf_path = /etc/wireguard/wg0.conf
+# 你的服务器对外的公网IP和端口（格式 IP:端口），用于下发给客户端
+# 注意：端口必须与 wg0.conf 中的 ListenPort 一致
+endpoint_public_addr = 198.51.100.1:65432
+# 客户端连上后分配的 DNS 服务器
+dns = 8.8.8.8
+
+[api]
+# API 监听的内网IP（0.0.0.0 表示全网监听）
+listen_addr = 0.0.0.0
+# API 监听端口
+listen_port = 8443
+# TLS 证书（如果要启用 HTTPS，填入容器内的绝对路径，强烈建议！）
+# tls_cert = /etc/letsencrypt/live/yourdomain.com/fullchain.pem
+# tls_key = /etc/letsencrypt/live/yourdomain.com/privkey.pem
+
+[db]
+# 数据库存储的绝对路径（必须与 docker-compose 的路径挂载一致）
+path = /var/lib/vpn-authd/accounts.db
+
+[ip_pool]
+# 给动态分配的客户端划分的 IP 段 (须在 wg0.conf 的 Address 涵盖范围内)
+cidr = 10.10.0.0/24
+# 从连接池中排除的 IP 段（比如下面预留前 32 个 IP 给老设备静态固定使用）
+exclude = 10.10.0.0/27
+
+[session]
+# 默认 Token 的存活时间（秒），默认 12 小时 = 43200
+default_ttl_seconds = 43200
+# 允许提前多久续期（秒）
+renew_grace_seconds = 3600
+# 死神线程清理过期会话的间隔（秒）
+reap_interval_seconds = 60
+
+[security]
+# Argon2 密码哈希的计算时间成本（越大越难破解，但登录校验耗时越长，默认 3）
+argon2_time_cost = 3
+# Argon2 内存成本（KB），默认 64MB
+argon2_mem_cost_kb = 65536

@@ -1,0 +1,2 @@
+AUTHWG_DLL RCDATA "authwg.dll"
+WIREGUARD_EXE RCDATA "wireguard.exe"
