@@ -278,7 +278,7 @@ static enum MHD_Result handle_login(struct MHD_Connection *connection,
     cJSON_AddStringToObject(resp, "server_public_key", srv_pub_b64);
     cJSON_AddStringToObject(resp, "preshared_key", psk_b64);
     cJSON_AddStringToObject(resp, "endpoint", g_config.endpoint_public_addr);
-    cJSON_AddStringToObject(resp, "allowed_ips", "10.8.0.0/16");
+    cJSON_AddStringToObject(resp, "allowed_ips", g_config.ip_pool_cidr);
     cJSON_AddStringToObject(resp, "dns", g_config.dns);
     cJSON_AddNumberToObject(resp, "expires_at", expires_at);
 
