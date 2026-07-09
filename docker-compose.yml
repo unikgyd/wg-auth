@@ -19,4 +19,6 @@ services:
       - /etc/vpn-authd:/etc/vpn-authd
       - /etc/wireguard:/etc/wireguard
       - /var/lib/vpn-authd:/var/lib/vpn-authd
+      # 映射证书目录 (比如 Let's Encrypt)，设置为只读 ro 更安全
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     restart: unless-stopped
