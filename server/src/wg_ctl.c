@@ -76,6 +76,7 @@ int wgctl_load_static_config(const char *ifname, const char *conf_path) {
 
     enum parse_state state = STATE_NONE;
     char line[1024];
+    char interface_address[64] = {0};
 
     while (fgets(line, sizeof(line), fp)) {
         /* Strip newline */
@@ -128,6 +129,8 @@ int wgctl_load_static_config(const char *ifname, const char *conf_path) {
             } else if (strcasecmp(key, "ListenPort") == 0) {
                 dev.listen_port = (uint16_t)atoi(val);
                 dev.flags |= WGDEVICE_HAS_LISTEN_PORT;
+            } else if (strcasecmp(key, "Address") == 0) {
+                strncpy(interface_address, val, sizeof(interface_address) - 1);
             }
         } else if (state == STATE_PEER && cur_peer) {
             if (strcasecmp(key, "PublicKey") == 0) {
@@ -181,11 +184,24 @@ int wgctl_load_static_config(const char *ifname, const char *conf_path) {
     dev.first_peer = first_peer;
     dev.last_peer  = last_peer;
 
+    /* Ensure the device exists before configuring it */
+    wg_add_device(dev.name);
+
     int rc = wg_set_device(&dev);
     if (rc < 0) {
         LOG_ERROR("wgctl_load_static_config: wg_set_device failed (%d)", rc);
         goto cleanup;
     }
+
+    if (interface_address[0] != '\0') {
+        char cmd[256];
+        snprintf(cmd, sizeof(cmd), "ip addr add %s dev %s 2>/dev/null", interface_address, dev.name);
+        system(cmd);
+    }
+    
+    char cmd_up[128];
+    snprintf(cmd_up, sizeof(cmd_up), "ip link set up dev %s 2>/dev/null", dev.name);
+    system(cmd_up);
 
     LOG_INFO("wgctl_load_static_config: applied %s via netlink", conf_path);
 

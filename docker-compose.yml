@@ -15,10 +15,8 @@ services:
     # 如果遇到权限问题，可以暴力点开启 privileged: true
     # privileged: true
     volumes:
-      # 挂载主配置文件和数据库目录
-      - ./config:/etc/vpn-authd
-      # 挂载原生的 wireguard 配置目录 (含 wg0.conf 和密钥)
-      - ./wireguard:/etc/wireguard
-      # 挂载数据库持久化目录
-      - ./db:/var/lib/vpn-authd
+      # 直接挂载宿主机的绝对路径，这样你写在宿主机 /etc 下的配置就能直接透传给容器！
+      - /etc/vpn-authd:/etc/vpn-authd
+      - /etc/wireguard:/etc/wireguard
+      - /var/lib/vpn-authd:/var/lib/vpn-authd
     restart: unless-stopped
