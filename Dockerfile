@@ -4,7 +4,8 @@ FROM debian:12-slim AS builder
 # 安装编译依赖
 RUN apt-get update && apt-get install -y \
     build-essential cmake pkg-config \
-    libsqlite3-dev libsodium-dev libmicrohttpd-dev libmnl-dev libcjson-dev
+    libsqlite3-dev libsodium-dev libmicrohttpd-dev libmnl-dev libcjson-dev \
+    libcurl4-openssl-dev
 
 # 复制源码
 WORKDIR /app
@@ -16,12 +17,12 @@ RUN mkdir -p build && cd build && \
     make
 
 # 阶段二：运行环境 (Runner)
-FROM debian:12-slim
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/debian:12-slim
 
 # 安装运行时依赖 (包含 iptables 供可能的路由配置使用)
 RUN apt-get update && apt-get install -y \
     libsqlite3-0 libsodium23 libmicrohttpd12 libmnl0 libcjson1 \
-    iptables iproute2 procps \
+    libcurl4 iptables iproute2 procps \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
