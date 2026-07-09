@@ -92,3 +92,34 @@ sudo ./client/vpn-client status
 sudo ./client/vpn-client logout
 ```
 客户端会通知服务端立刻清理内核白名单，并彻底销毁本地的 `wg-vpn` 虚拟网卡。
+
+---
+
+## 🪟 4. Windows 客户端指南 (图形界面)
+
+Windows 客户端分为**核心动态库 (`authwg.dll`)** 与 **Lazarus 极简图形界面** 两部分。
+
+### 编译核心动态库 (C++)
+在装有 Visual Studio 或 MinGW 的电脑上编译 `authwg.dll`：
+```bash
+cd windows/client
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+cmake --build . --config Release
+```
+这将生成一个极致小巧且零依赖的 `authwg.dll`。
+
+### 编译并打包单文件客户端 (Lazarus)
+1. 确保安装了 **Lazarus (Free Pascal)**。
+2. 将上一步编译好的 `authwg.dll`，以及从 WireGuard 官方安装包提取的 `wireguard.exe`，**拷贝到 `windows-ui` 目录下**。
+3. 在 Lazarus 中打开 `windows-ui/authwgui.lpi` 工程。
+4. 在菜单栏选择 **Project -> Project Options**，在 **Debugging** 中关闭所有调试信息，并在 **Compilation and Linking** 中勾选 Smart Linkable 和 Strip symbols。
+5. 按 **Shift + F9** 进行构建。
+
+Lazarus 会自动触发资源脚本，将 `.dll` 和 `.exe` 打包进最终的 `authwgui.exe` 中，生成一个十几兆的完美单文件绿色版客户端！
+
+### 使用 Windows 客户端
+1. 双击运行 `authwgui.exe`（程序会自动请求管理员权限，这是安装虚拟网卡所必需的）。
+2. 输入服务器 URL（如 `https://198.51.100.1:8443`）、账号和密码。
+3. 点击 **Connect**。
+4. 退出时，**请在右下角系统托盘的图标上右键点击 "Exit Auth-WG"**，这会优雅地断开连接并物理超度后台虚拟网卡。点击右上角的 X 只会隐藏窗口。
