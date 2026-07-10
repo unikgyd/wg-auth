@@ -22,7 +22,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential libcurl4-openssl-dev libcjson-dev
+          sudo apt-get install -y cmake build-essential libcurl4-openssl-dev libcjson-dev libmnl-dev
 
       - name: Configure CMake
         run: cmake -B client/build -S client -DCMAKE_BUILD_TYPE=Release
