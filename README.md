@@ -2,6 +2,9 @@
 
 # Auth-WG (WireGuard 动态认证管理平台)
 
+[![Docker Build](https://github.com/unikgyd/wg-auth/actions/workflows/docker-image.yml/badge.svg)](https://github.com/USERNAME/REPO_NAME/actions/workflows/docker-image.yml)
+[![Linux Client](https://github.com/unikgyd/wg-auth/actions/workflows/build-linux.yml/badge.svg)](https://github.com/unikgyd/wg-auth/actions/workflows/build-linux.yml)
+
 Auth-WG 是一个为 WireGuard 打造的高性能、企业级动态身份认证系统。它完全使用 C 语言从内核级重写了控制面，取代了传统的 `wg-quick` 脚本，让 WireGuard 具备了商业 VPN 的动态鉴权、防泄漏和生命周期管理能力。
 
 ## ✨ 核心特性

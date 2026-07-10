@@ -2,6 +2,9 @@
 
 # Auth-WG (WireGuard Dynamic Authentication Platform)
 
+[![Docker Build](https://github.com/unikgyd/wg-auth/actions/workflows/docker-image.yml/badge.svg)](https://github.com/unikgyd/wg-auth/actions/workflows/docker-image.yml)
+[![Linux Client](https://github.com/unikgyd/wg-auth/actions/workflows/build-linux.yml/badge.svg)](https://github.com/unikgyd/wg-auth/actions/workflows/build-linux.yml)
+
 Auth-WG is a high-performance, enterprise-grade dynamic identity authentication system built for WireGuard. It rewrites the control plane from the kernel level entirely in C, replacing the traditional `wg-quick` scripts, and endowing WireGuard with commercial VPN capabilities such as dynamic authentication, leak prevention, and lifecycle management.
 
 ## ✨ Core Features
