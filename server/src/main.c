@@ -13,42 +13,18 @@
 #include <unistd.h>
 #include <sodium.h>
 
-static volatile int keep_running = 1;
+static volatile sig_atomic_t keep_running = 1;
 
 static void handle_sigint(int sig) {
     (void)sig;
     keep_running = 0;
 }
 
-/* Restore IP pool and WireGuard peers for sessions that survived a restart */
-static void recover_active_sessions(void) {
-    session_t *sessions = NULL;
-    int count = 0;
-    
-    if (db_get_active_sessions(&sessions, &count) != 0 || count == 0) {
-        if (sessions) free(sessions);
-        LOG_INFO("No active sessions to recover");
-        return;
-    }
-    
-    LOG_INFO("Recovering %d active session(s) from database...", count);
-    for (int i = 0; i < count; i++) {
-        session_t *sess = &sessions[i];
-        
-        /* Mark the IP as used in the pool */
-        ip_pool_mark_used(sess->allowed_ip);
-        
-        /* Re-inject the peer into the WireGuard kernel interface */
-        uint8_t pubkey[WG_KEY_LEN];
-        size_t out_len;
-        if (base64_decode(sess->device_pubkey, pubkey, sizeof(pubkey), &out_len) == 0 &&
-            out_len == WG_KEY_LEN) {
-            wgctl_add_peer(g_config.wg_interface, pubkey, NULL, sess->allowed_ip);
-            LOG_DEBUG("Recovered peer for account %d, IP %s", sess->account_id, sess->allowed_ip);
-        }
-    }
-    free(sessions);
-    LOG_INFO("Session recovery complete");
+/* Revoke all active sessions on startup - clients will need to re-login.
+ * This is safer than recovering without PresharedKeys (S-M10). */
+static void revoke_stale_sessions(void) {
+    LOG_INFO("Revoking all active sessions (server restart)");
+    db_revoke_all_active_sessions();
 }
 
 int main(int argc, char **argv) {
@@ -64,7 +40,7 @@ int main(int argc, char **argv) {
         LOG_WARN("Could not load config file %s, proceeding with defaults", conf_path);
     }
     
-    if (db_init(g_config.db_path[0] ? g_config.db_path : "accounts.db") != 0) {
+    if (db_init(g_config.db_path[0] ? g_config.db_path : "/var/lib/vpn-authd/accounts.db") != 0) {
         LOG_ERROR("Failed to initialize database");
         return 1;
     }
@@ -78,8 +54,8 @@ int main(int argc, char **argv) {
     
     wgctl_load_static_config(g_config.wg_interface, g_config.wg_conf_path);
     
-    /* Restore active sessions from DB into IP pool and WireGuard kernel */
-    recover_active_sessions();
+    /* Revoke stale sessions rather than recovering without PresharedKeys */
+    revoke_stale_sessions();
     
     if (api_start() != 0) {
         LOG_ERROR("Failed to start API");
@@ -103,6 +79,7 @@ int main(int argc, char **argv) {
     reaper_stop();
     api_stop();
     db_close();
+    ip_pool_destroy();
     
     return 0;
 }

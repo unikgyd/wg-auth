@@ -16,4 +16,6 @@ int ip_pool_release(const char *ip);
 // Mark an IP as used (during db initialization)
 int ip_pool_mark_used(const char *ip);
 
+void ip_pool_destroy(void);
+
 #endif // IP_POOL_H

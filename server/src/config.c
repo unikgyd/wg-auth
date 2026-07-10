@@ -7,11 +7,19 @@
 
 server_config_t g_config;
 
+static int safe_atoi(const char *str, int min_val, int max_val, int default_val) {
+    char *endptr;
+    long v = strtol(str, &endptr, 10);
+    if (*endptr != '\0' && *endptr != '\n' && *endptr != '\r' && *endptr != ' ') return default_val;
+    if (v < min_val || v > max_val) return default_val;
+    return (int)v;
+}
+
 static void set_default_config() {
     memset(&g_config, 0, sizeof(g_config));
     strcpy(g_config.wg_interface, "wg0");
     strcpy(g_config.wg_conf_path, "/etc/wireguard/wg0.conf");
-    strcpy(g_config.api_listen_addr, "0.0.0.0");
+    strcpy(g_config.api_listen_addr, "127.0.0.1");
     g_config.api_listen_port = 8443;
     g_config.session_default_ttl_seconds = 43200;
     g_config.session_reap_interval_seconds = 60;
@@ -69,7 +77,7 @@ int load_config(const char *path) {
             else if (strcmp(key, "dns") == 0) strncpy(g_config.dns, val, MAX_IP_LEN-1);
         } else if (strcmp(section, "api") == 0) {
             if (strcmp(key, "listen_addr") == 0) strncpy(g_config.api_listen_addr, val, MAX_IP_LEN-1);
-            else if (strcmp(key, "listen_port") == 0) g_config.api_listen_port = atoi(val);
+            else if (strcmp(key, "listen_port") == 0) g_config.api_listen_port = safe_atoi(val, 1, 65535, 8443);
             else if (strcmp(key, "tls_cert") == 0) strncpy(g_config.tls_cert, val, MAX_PATH_LEN-1);
             else if (strcmp(key, "tls_key") == 0) strncpy(g_config.tls_key, val, MAX_PATH_LEN-1);
         } else if (strcmp(section, "db") == 0) {
@@ -78,12 +86,12 @@ int load_config(const char *path) {
             if (strcmp(key, "cidr") == 0) strncpy(g_config.ip_pool_cidr, val, MAX_IP_LEN-1);
             else if (strcmp(key, "exclude") == 0) strncpy(g_config.ip_pool_exclude, val, MAX_IP_LEN-1);
         } else if (strcmp(section, "session") == 0) {
-            if (strcmp(key, "default_ttl_seconds") == 0) g_config.session_default_ttl_seconds = atoi(val);
-            else if (strcmp(key, "renew_grace_seconds") == 0) g_config.session_renew_grace_seconds = atoi(val);
-            else if (strcmp(key, "reap_interval_seconds") == 0) g_config.session_reap_interval_seconds = atoi(val);
+            if (strcmp(key, "default_ttl_seconds") == 0) g_config.session_default_ttl_seconds = safe_atoi(val, 60, 86400*30, 3600);
+            else if (strcmp(key, "renew_grace_seconds") == 0) g_config.session_renew_grace_seconds = safe_atoi(val, 0, 86400, 300);
+            else if (strcmp(key, "reap_interval_seconds") == 0) g_config.session_reap_interval_seconds = safe_atoi(val, 5, 3600, 60);
         } else if (strcmp(section, "security") == 0) {
-            if (strcmp(key, "argon2_time_cost") == 0) g_config.argon2_time_cost = atoi(val);
-            else if (strcmp(key, "argon2_mem_cost_kb") == 0) g_config.argon2_mem_cost_kb = atoi(val);
+            if (strcmp(key, "argon2_time_cost") == 0) g_config.argon2_time_cost = safe_atoi(val, 1, 100, 3);
+            else if (strcmp(key, "argon2_mem_cost_kb") == 0) g_config.argon2_mem_cost_kb = safe_atoi(val, 1024, 4194304, 65536);
         }
     }
 

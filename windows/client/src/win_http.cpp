@@ -5,6 +5,8 @@
 
 #pragma comment(lib, "winhttp.lib")
 
+#define MAX_RESPONSE_SIZE (1024 * 1024)  // 1 MB max
+
 namespace {
     std::wstring Utf8ToWide(const std::string& str) {
         if (str.empty()) return L"";
@@ -27,13 +29,13 @@ bool PostJson(const std::string& url_in, const std::string& json_body, std::stri
     ZeroMemory(&urlComp, sizeof(urlComp));
     urlComp.dwStructSize = sizeof(urlComp);
     
-    wchar_t hostName[256];
-    wchar_t urlPath[1024];
+    std::vector<wchar_t> hostName(INTERNET_MAX_HOST_NAME_LENGTH);
+    std::vector<wchar_t> urlPath(INTERNET_MAX_URL_LENGTH);
     
-    urlComp.lpszHostName = hostName;
-    urlComp.dwHostNameLength = sizeof(hostName) / sizeof(hostName[0]);
-    urlComp.lpszUrlPath = urlPath;
-    urlComp.dwUrlPathLength = sizeof(urlPath) / sizeof(urlPath[0]);
+    urlComp.lpszHostName = hostName.data();
+    urlComp.dwHostNameLength = hostName.size();
+    urlComp.lpszUrlPath = urlPath.data();
+    urlComp.dwUrlPathLength = urlPath.size();
     
     if (!WinHttpCrackUrl(w_url.c_str(), 0, 0, &urlComp)) {
         return false;
@@ -109,6 +111,13 @@ bool PostJson(const std::string& url_in, const std::string& json_body, std::stri
             std::vector<char> buffer(dwSizeAvail + 1, 0);
             if (WinHttpReadData(hRequest, (LPVOID)buffer.data(), dwSizeAvail, &dwDownloaded)) {
                 response_body.append(buffer.data(), dwDownloaded);
+            }
+
+            if (response_body.size() > MAX_RESPONSE_SIZE) {
+                WinHttpCloseHandle(hRequest);
+                WinHttpCloseHandle(hConnect);
+                WinHttpCloseHandle(hSession);
+                return false;
             }
         } while (dwSizeAvail > 0);
     }

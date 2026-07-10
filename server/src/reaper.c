@@ -7,13 +7,14 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <stdatomic.h>
 
 static pthread_t reaper_thread;
-static volatile int stop_flag = 0;
+static atomic_int stop_flag = 0;
 
 static void* reaper_worker(void* arg) {
     (void)arg;
-    while (!stop_flag) {
+    while (!atomic_load(&stop_flag)) {
         session_t *expired_sessions;
         int count = 0;
         
@@ -35,7 +36,7 @@ static void* reaper_worker(void* arg) {
             free(expired_sessions);
         }
         
-        for (int i = 0; i < g_config.session_reap_interval_seconds && !stop_flag; i++) {
+        for (int i = 0; i < g_config.session_reap_interval_seconds && !atomic_load(&stop_flag); i++) {
 #ifdef _WIN32
             Sleep(1000);
 #else
@@ -47,7 +48,7 @@ static void* reaper_worker(void* arg) {
 }
 
 int reaper_start(void) {
-    stop_flag = 0;
+    atomic_store(&stop_flag, 0);
     if (pthread_create(&reaper_thread, NULL, reaper_worker, NULL) != 0) {
         LOG_ERROR("Failed to start reaper thread");
         return -1;
@@ -56,6 +57,6 @@ int reaper_start(void) {
 }
 
 void reaper_stop(void) {
-    stop_flag = 1;
+    atomic_store(&stop_flag, 1);
     pthread_join(reaper_thread, NULL);
 }

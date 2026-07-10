@@ -61,10 +61,10 @@ target_compile_options(vpn-authd PRIVATE
     ${SQLITE3_CFLAGS}
     ${LIBMNL_CFLAGS}
     ${CJSON_CFLAGS}
-    -Wall -Wextra -pthread
+    -Wall -Wextra -pthread -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE
 )
 
-target_link_options(vpn-authd PRIVATE -pthread)
+target_link_options(vpn-authd PRIVATE -pthread -Wl,-z,relro,-z,now)
 
 # CLI tool to add users
 add_executable(vpn-add-user
@@ -89,7 +89,7 @@ target_link_libraries(vpn-add-user PRIVATE
 target_compile_options(vpn-add-user PRIVATE
     ${LIBSODIUM_CFLAGS}
     ${SQLITE3_CFLAGS}
-    -Wall -Wextra -pthread
+    -Wall -Wextra -pthread -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE
 )
 
-target_link_options(vpn-add-user PRIVATE -pthread)
+target_link_options(vpn-add-user PRIVATE -pthread -Wl,-z,relro,-z,now)

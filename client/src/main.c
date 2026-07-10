@@ -13,7 +13,7 @@
 #define IFNAME "wg-vpn"
 
 static volatile int keep_running = 1;
-static char current_token[64] = {0};
+static char current_token[256] = {0};
 
 static void handle_sigint(int sig) {
     (void)sig;
@@ -109,6 +109,12 @@ int main(int argc, char **argv) {
         }
         const char *username = argv[2];
         const char *password = argv[3];
+        // Copy password to stack buffer, then overwrite argv to hide from ps
+        char pass_buf[256];
+        strncpy(pass_buf, password, sizeof(pass_buf) - 1);
+        pass_buf[sizeof(pass_buf) - 1] = '\0';
+        memset(argv[3], 0, strlen(argv[3]));  // Overwrite argv to hide from process list
+        password = pass_buf;
 
         wg_client_config_t config;
         printf("Logging in to %s...\n", server_url);

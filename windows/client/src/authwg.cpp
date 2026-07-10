@@ -12,6 +12,24 @@
 
 #pragma comment(lib, "ws2_32.lib")
 
+static std::string GetAbsoluteConfPath();
+
+static const char* SafeGetString(cJSON* obj, const char* key) {
+    cJSON* item = cJSON_GetObjectItem(obj, key);
+    if (item && cJSON_IsString(item) && item->valuestring) {
+        return item->valuestring;
+    }
+    return NULL;
+}
+
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
+    if (reason == DLL_PROCESS_DETACH) {
+        // Best-effort cleanup of sensitive conf file on exit
+        DeleteFileA(GetAbsoluteConfPath().c_str());
+    }
+    return TRUE;
+}
+
 static std::string g_server_url;
 static std::string g_session_token;
 static std::atomic<bool> g_insecure(false);
@@ -65,9 +83,14 @@ static bool InstallTunnel(const std::string& conf_path) {
     ZeroMemory(&pi, sizeof(pi));
 
     if (CreateProcessA(wgPath.c_str(), (LPSTR)cmd.c_str(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-        WaitForSingleObject(pi.hProcess, 5000); // Wait up to 5s
-        DWORD exitCode;
-        GetExitCodeProcess(pi.hProcess, &exitCode);
+        DWORD exitCode = 0;
+        if (WaitForSingleObject(pi.hProcess, 5000) == WAIT_TIMEOUT) {
+            // Attempt to terminate if it hangs
+            TerminateProcess(pi.hProcess, 1);
+            exitCode = 1;
+        } else {
+            GetExitCodeProcess(pi.hProcess, &exitCode);
+        }
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
         return exitCode == 0;
@@ -95,7 +118,14 @@ static void UninstallTunnel() {
     ZeroMemory(&pi, sizeof(pi));
 
     if (CreateProcessA(wgPath.c_str(), (LPSTR)cmd.c_str(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
-        WaitForSingleObject(pi.hProcess, 3000);
+        DWORD exitCode = 0;
+        if (WaitForSingleObject(pi.hProcess, 5000) == WAIT_TIMEOUT) {
+            // Attempt to terminate if it hangs
+            TerminateProcess(pi.hProcess, 1);
+            exitCode = 1;
+        } else {
+            GetExitCodeProcess(pi.hProcess, &exitCode);
+        }
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
     }
@@ -147,6 +177,12 @@ EXPORT int CALLING_CONV WgLogin(const char* username, const char* password, cons
         return 0; // Already running
     }
 
+    std::string s_server_url = server_url ? server_url : "";
+    if (s_server_url.empty() || (s_server_url.find("https://") != 0 && s_server_url.find("http://") != 0)) {
+        SetStatus("Server URL must start with https:// or http://");
+        return -1;
+    }
+
     SetStatus("Connecting...");
 
     cJSON* req = cJSON_CreateObject();
@@ -188,17 +224,31 @@ EXPORT int CALLING_CONV WgLogin(const char* username, const char* password, cons
         return -2;
     }
 
-    // Parse config
-    std::string token = cJSON_GetObjectItem(resp, "session_token")->valuestring;
-    std::string priv = cJSON_GetObjectItem(resp, "client_private_key")->valuestring;
-    std::string addr = cJSON_GetObjectItem(resp, "client_address")->valuestring;
-    std::string srv_pub = cJSON_GetObjectItem(resp, "server_public_key")->valuestring;
-    std::string psk = cJSON_GetObjectItem(resp, "preshared_key")->valuestring;
-    std::string endpoint = cJSON_GetObjectItem(resp, "endpoint")->valuestring;
-    std::string allowed_ips = cJSON_GetObjectItem(resp, "allowed_ips")->valuestring;
-    
+    // Parse config (null-safe)
+    const char* s_token = SafeGetString(resp, "session_token");
+    const char* s_priv = SafeGetString(resp, "client_private_key");
+    const char* s_addr = SafeGetString(resp, "client_address");
+    const char* s_srv_pub = SafeGetString(resp, "server_public_key");
+    const char* s_psk = SafeGetString(resp, "preshared_key");
+    const char* s_endpoint = SafeGetString(resp, "endpoint");
+    const char* s_allowed = SafeGetString(resp, "allowed_ips");
+
+    if (!s_token || !s_priv || !s_addr || !s_srv_pub || !s_psk || !s_endpoint || !s_allowed) {
+        cJSON_Delete(resp);
+        SetStatus("Invalid server response (missing fields)");
+        return -2;
+    }
+
+    std::string token = s_token;
+    std::string priv = s_priv;
+    std::string addr = s_addr;
+    std::string srv_pub = s_srv_pub;
+    std::string psk = s_psk;
+    std::string endpoint = s_endpoint;
+    std::string allowed_ips = s_allowed;
+
     cJSON* dns_item = cJSON_GetObjectItem(resp, "dns");
-    std::string dns = (dns_item && dns_item->valuestring) ? dns_item->valuestring : "";
+    std::string dns = (dns_item && cJSON_IsString(dns_item) && dns_item->valuestring) ? dns_item->valuestring : "";
 
     cJSON_Delete(resp);
 

@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/stat.h>
 
 static sqlite3 *db = NULL;
 
@@ -23,6 +24,10 @@ int db_init(const char *db_path) {
         LOG_ERROR("Cannot open database: %s", sqlite3_errmsg(db));
         return -1;
     }
+
+#ifndef _WIN32
+    chmod(db_path, 0600);
+#endif
 
     sqlite3_exec(db, "PRAGMA journal_mode=WAL;", NULL, NULL, NULL);
 
@@ -77,7 +82,9 @@ int db_get_account_by_username(const char *username, account_t *acc) {
     if (rc == SQLITE_ROW) {
         acc->id = sqlite3_column_int(stmt, 0);
         strncpy(acc->username, (const char*)sqlite3_column_text(stmt, 1), sizeof(acc->username)-1);
+        acc->username[sizeof(acc->username)-1] = '\0';
         strncpy(acc->password_hash, (const char*)sqlite3_column_text(stmt, 2), sizeof(acc->password_hash)-1);
+        acc->password_hash[sizeof(acc->password_hash)-1] = '\0';
         acc->created_at = sqlite3_column_int64(stmt, 3);
         acc->disabled = sqlite3_column_int(stmt, 4);
         sqlite3_finalize(stmt);
@@ -126,8 +133,11 @@ int db_get_session_by_token(const char *token, session_t *sess) {
         sess->id = sqlite3_column_int(stmt, 0);
         sess->account_id = sqlite3_column_int(stmt, 1);
         strncpy(sess->device_pubkey, (const char*)sqlite3_column_text(stmt, 2), sizeof(sess->device_pubkey)-1);
+        sess->device_pubkey[sizeof(sess->device_pubkey)-1] = '\0';
         strncpy(sess->allowed_ip, (const char*)sqlite3_column_text(stmt, 3), sizeof(sess->allowed_ip)-1);
+        sess->allowed_ip[sizeof(sess->allowed_ip)-1] = '\0';
         strncpy(sess->session_token, (const char*)sqlite3_column_text(stmt, 4), sizeof(sess->session_token)-1);
+        sess->session_token[sizeof(sess->session_token)-1] = '\0';
         sess->created_at = sqlite3_column_int64(stmt, 5);
         sess->expires_at = sqlite3_column_int64(stmt, 6);
         sess->revoked = sqlite3_column_int(stmt, 7);
@@ -186,8 +196,11 @@ int db_get_expired_sessions(session_t **sessions, int *count) {
         s->id = sqlite3_column_int(stmt, 0);
         s->account_id = sqlite3_column_int(stmt, 1);
         strncpy(s->device_pubkey, (const char*)sqlite3_column_text(stmt, 2), sizeof(s->device_pubkey)-1);
+        s->device_pubkey[sizeof(s->device_pubkey)-1] = '\0';
         strncpy(s->allowed_ip, (const char*)sqlite3_column_text(stmt, 3), sizeof(s->allowed_ip)-1);
+        s->allowed_ip[sizeof(s->allowed_ip)-1] = '\0';
         strncpy(s->session_token, (const char*)sqlite3_column_text(stmt, 4), sizeof(s->session_token)-1);
+        s->session_token[sizeof(s->session_token)-1] = '\0';
         (*count)++;
     }
     sqlite3_finalize(stmt);
@@ -223,8 +236,11 @@ int db_get_active_sessions(session_t **sessions, int *count) {
         s->id = sqlite3_column_int(stmt, 0);
         s->account_id = sqlite3_column_int(stmt, 1);
         strncpy(s->device_pubkey, (const char*)sqlite3_column_text(stmt, 2), sizeof(s->device_pubkey)-1);
+        s->device_pubkey[sizeof(s->device_pubkey)-1] = '\0';
         strncpy(s->allowed_ip, (const char*)sqlite3_column_text(stmt, 3), sizeof(s->allowed_ip)-1);
+        s->allowed_ip[sizeof(s->allowed_ip)-1] = '\0';
         strncpy(s->session_token, (const char*)sqlite3_column_text(stmt, 4), sizeof(s->session_token)-1);
+        s->session_token[sizeof(s->session_token)-1] = '\0';
         (*count)++;
     }
     sqlite3_finalize(stmt);
@@ -242,4 +258,23 @@ int db_log_audit(int account_id, const char *action, const char *detail) {
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     return (rc == SQLITE_DONE) ? 0 : -1;
+}
+
+int db_count_active_sessions(int account_id) {
+    const char *sql = "SELECT COUNT(*) FROM sessions WHERE account_id = ? AND revoked = 0 AND expires_at >= ?";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return 0;
+    sqlite3_bind_int(stmt, 1, account_id);
+    sqlite3_bind_int64(stmt, 2, (sqlite3_int64)time(NULL));
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return count;
+}
+
+void db_revoke_all_active_sessions(void) {
+    const char *sql = "UPDATE sessions SET revoked = 1 WHERE revoked = 0";
+    sqlite3_exec(db, sql, NULL, NULL, NULL);
 }

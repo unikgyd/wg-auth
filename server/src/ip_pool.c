@@ -146,3 +146,12 @@ int ip_pool_mark_used(const char *ip_cidr) {
     pthread_mutex_unlock(&pool_mutex);
     return 0;
 }
+
+void ip_pool_destroy(void) {
+    pthread_mutex_lock(&pool_mutex);
+    if (bitmap) {
+        free(bitmap);
+        bitmap = NULL;
+    }
+    pthread_mutex_unlock(&pool_mutex);
+}

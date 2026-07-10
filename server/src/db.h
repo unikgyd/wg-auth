@@ -42,4 +42,8 @@ int db_get_active_sessions(session_t **sessions, int *count);
 // Audit
 int db_log_audit(int account_id, const char *action, const char *detail);
 
+// Session utilities
+int db_count_active_sessions(int account_id);
+void db_revoke_all_active_sessions(void);
+
 #endif // DB_H

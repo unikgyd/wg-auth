@@ -292,6 +292,11 @@ begin
   try
     UpdateStatus;
   except
+    on E: Exception do
+    begin
+      Timer1.Enabled := False;
+      ShowMessage('Error updating status: ' + E.Message);
+    end;
   end;
 end;
 

@@ -21,52 +21,86 @@
 /* --------------- constants --------------- */
 
 #define MAX_BODY_SIZE       4096
-#define MAX_FAIL_ENTRIES    256
+#define MAX_TRACKED_IPS     1024
 #define MAX_FAILS_PER_IP    5
 #define FAIL_WINDOW_SECONDS 600
 
 /* --------------- static state ------------ */
 
 static struct MHD_Daemon *api_daemon = NULL;
+static char *tls_cert_pem = NULL;
+static char *tls_key_pem = NULL;
 
 static uint8_t server_pubkey[WG_KEY_LEN];
 static int     server_pubkey_loaded = 0;
 
-/* --------------- rate limiter ------------ */
+/* --------------- rate limiter (per-IP hash map) ------------ */
 
-static struct {
-    char   ip[64];
-    time_t timestamp;
-} fail_log[MAX_FAIL_ENTRIES];
+typedef struct {
+    char ip[64];
+    int  fail_count;
+    time_t first_fail;
+    time_t last_fail;
+} ip_fail_entry_t;
 
-static int             fail_log_idx = 0;
-static pthread_mutex_t fail_mutex   = PTHREAD_MUTEX_INITIALIZER;
+static ip_fail_entry_t fail_table[MAX_TRACKED_IPS];
+static pthread_mutex_t fail_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static unsigned int ip_hash(const char *ip) {
+    unsigned int hash = 5381;
+    while (*ip) hash = ((hash << 5) + hash) + (unsigned char)*ip++;
+    return hash % MAX_TRACKED_IPS;
+}
 
 static void record_login_failure(const char *ip) {
     pthread_mutex_lock(&fail_mutex);
-    strncpy(fail_log[fail_log_idx].ip, ip, sizeof(fail_log[fail_log_idx].ip) - 1);
-    fail_log[fail_log_idx].ip[sizeof(fail_log[fail_log_idx].ip) - 1] = '\0';
-    fail_log[fail_log_idx].timestamp = time(NULL);
-    fail_log_idx = (fail_log_idx + 1) % MAX_FAIL_ENTRIES;
-    pthread_mutex_unlock(&fail_mutex);
-}
-
-/* Returns 1 if the IP has exceeded the rate limit, 0 otherwise. */
-static int check_rate_limit(const char *ip) {
     time_t now = time(NULL);
-    int    count = 0;
-
-    pthread_mutex_lock(&fail_mutex);
-    for (int i = 0; i < MAX_FAIL_ENTRIES; i++) {
-        if (fail_log[i].ip[0] &&
-            strcmp(fail_log[i].ip, ip) == 0 &&
-            now - fail_log[i].timestamp < FAIL_WINDOW_SECONDS) {
-            count++;
+    unsigned int idx = ip_hash(ip);
+    // Linear probe to find existing or empty slot
+    for (int i = 0; i < 8; i++) {
+        unsigned int slot = (idx + i) % MAX_TRACKED_IPS;
+        if (fail_table[slot].ip[0] == '\0' || strcmp(fail_table[slot].ip, ip) == 0) {
+            if (fail_table[slot].ip[0] == '\0' || (now - fail_table[slot].first_fail > FAIL_WINDOW_SECONDS)) {
+                // New entry or expired window - reset
+                strncpy(fail_table[slot].ip, ip, sizeof(fail_table[slot].ip) - 1);
+                fail_table[slot].ip[sizeof(fail_table[slot].ip) - 1] = '\0';
+                fail_table[slot].fail_count = 1;
+                fail_table[slot].first_fail = now;
+            } else {
+                fail_table[slot].fail_count++;
+            }
+            fail_table[slot].last_fail = now;
+            break;
         }
     }
     pthread_mutex_unlock(&fail_mutex);
+}
 
-    return count >= MAX_FAILS_PER_IP;
+static int check_rate_limit(const char *ip) {
+    pthread_mutex_lock(&fail_mutex);
+    time_t now = time(NULL);
+    unsigned int idx = ip_hash(ip);
+    for (int i = 0; i < 8; i++) {
+        unsigned int slot = (idx + i) % MAX_TRACKED_IPS;
+        if (fail_table[slot].ip[0] != '\0' && strcmp(fail_table[slot].ip, ip) == 0) {
+            if (now - fail_table[slot].first_fail > FAIL_WINDOW_SECONDS) {
+                // Window expired, reset
+                fail_table[slot].ip[0] = '\0';
+                fail_table[slot].fail_count = 0;
+                pthread_mutex_unlock(&fail_mutex);
+                return 0;
+            }
+            if (fail_table[slot].fail_count >= MAX_FAILS_PER_IP) {
+                pthread_mutex_unlock(&fail_mutex);
+                return 1; // Rate limited
+            }
+            pthread_mutex_unlock(&fail_mutex);
+            return 0;
+        }
+        if (fail_table[slot].ip[0] == '\0') break;
+    }
+    pthread_mutex_unlock(&fail_mutex);
+    return 0;
 }
 
 /* --------------- helpers ----------------- */
@@ -79,7 +113,7 @@ static char *read_file_to_string(const char *path) {
     }
     fseek(f, 0, SEEK_END);
     long len = ftell(f);
-    if (len < 0) {
+    if (len < 0 || len > 1024 * 1024) {  // 1MB limit
         fclose(f);
         return NULL;
     }
@@ -193,7 +227,7 @@ static enum MHD_Result handle_login(struct MHD_Connection *connection,
     }
 
     if (acc.disabled) {
-        LOG_WARN("Login attempt for disabled account: %s", username);
+        LOG_WARN("Login attempt for disabled account: %s", acc.username);
         cJSON_Delete(json);
         record_login_failure(client_ip);
         cJSON *err = cJSON_CreateObject();
@@ -209,6 +243,17 @@ static enum MHD_Result handle_login(struct MHD_Connection *connection,
         cJSON *err = cJSON_CreateObject();
         cJSON_AddStringToObject(err, "error", "Invalid credentials");
         enum MHD_Result ret = send_json_response(connection, err, MHD_HTTP_UNAUTHORIZED);
+        cJSON_Delete(err);
+        return ret;
+    }
+
+    // Check concurrent session limit (max 5 per account)
+    int active_count = db_count_active_sessions(acc.id);
+    if (active_count >= 5) {
+        cJSON_Delete(json);
+        cJSON *err = cJSON_CreateObject();
+        cJSON_AddStringToObject(err, "error", "Too many active sessions");
+        enum MHD_Result ret = send_json_response(connection, err, MHD_HTTP_TOO_MANY_REQUESTS);
         cJSON_Delete(err);
         return ret;
     }
@@ -330,6 +375,17 @@ static enum MHD_Result handle_logout(struct MHD_Connection *connection,
         return ret;
     }
 
+    // Validate token format (base64url, expected ~43 chars for 32 bytes)
+    size_t token_len = strlen(c_token->valuestring);
+    if (token_len < 20 || token_len > 128) {
+        cJSON_Delete(json);
+        cJSON *err = cJSON_CreateObject();
+        cJSON_AddStringToObject(err, "error", "Invalid token format");
+        enum MHD_Result ret = send_json_response(connection, err, MHD_HTTP_BAD_REQUEST);
+        cJSON_Delete(err);
+        return ret;
+    }
+
     session_t sess;
     if (db_get_session_by_token(c_token->valuestring, &sess) != 0) {
         cJSON_Delete(json);
@@ -408,6 +464,17 @@ static enum MHD_Result handle_renew(struct MHD_Connection *connection,
         return ret;
     }
 
+    // Validate token format (base64url, expected ~43 chars for 32 bytes)
+    size_t token_len = strlen(c_token->valuestring);
+    if (token_len < 20 || token_len > 128) {
+        cJSON_Delete(json);
+        cJSON *err = cJSON_CreateObject();
+        cJSON_AddStringToObject(err, "error", "Invalid token format");
+        enum MHD_Result ret = send_json_response(connection, err, MHD_HTTP_BAD_REQUEST);
+        cJSON_Delete(err);
+        return ret;
+    }
+
     session_t sess;
     if (db_get_session_by_token(c_token->valuestring, &sess) != 0) {
         cJSON_Delete(json);
@@ -467,6 +534,16 @@ static enum MHD_Result handle_status(struct MHD_Connection *connection) {
         cJSON *err = cJSON_CreateObject();
         cJSON_AddStringToObject(err, "error", "Missing token");
         enum MHD_Result ret = send_json_response(connection, err, MHD_HTTP_UNAUTHORIZED);
+        cJSON_Delete(err);
+        return ret;
+    }
+
+    // Validate token format (base64url, expected ~43 chars for 32 bytes)
+    size_t token_len = strlen(token);
+    if (token_len < 20 || token_len > 128) {
+        cJSON *err = cJSON_CreateObject();
+        cJSON_AddStringToObject(err, "error", "Invalid token format");
+        enum MHD_Result ret = send_json_response(connection, err, MHD_HTTP_BAD_REQUEST);
         cJSON_Delete(err);
         return ret;
     }
@@ -570,7 +647,12 @@ static enum MHD_Result api_router(void *cls, struct MHD_Connection *connection,
             cJSON_Delete(err);
             return ret;
         }
-        info->data = realloc(info->data, info->size + *upload_data_size + 1);
+        char *tmp = realloc(info->data, info->size + *upload_data_size + 1);
+        if (!tmp) {
+            *upload_data_size = 0;
+            return MHD_YES;
+        }
+        info->data = tmp;
         memcpy(info->data + info->size, upload_data, *upload_data_size);
         info->size += *upload_data_size;
         info->data[info->size] = '\0';
@@ -606,21 +688,20 @@ int api_start(void) {
     api_cache_server_pubkey();
 
     /* Read TLS certificate and private key */
-    char *cert_pem = NULL, *key_pem = NULL;
     if (g_config.tls_cert[0] && g_config.tls_key[0]) {
-        cert_pem = read_file_to_string(g_config.tls_cert);
-        key_pem  = read_file_to_string(g_config.tls_key);
+        tls_cert_pem = read_file_to_string(g_config.tls_cert);
+        tls_key_pem  = read_file_to_string(g_config.tls_key);
     }
 
     unsigned int flags = MHD_USE_INTERNAL_POLLING_THREAD;
-    if (cert_pem && key_pem) {
+    if (tls_cert_pem && tls_key_pem) {
         flags |= MHD_USE_TLS;
         api_daemon = MHD_start_daemon(flags, g_config.api_listen_port,
                                       NULL, NULL,
                                       &api_router, NULL,
                                       MHD_OPTION_NOTIFY_COMPLETED, request_completed, NULL,
-                                      MHD_OPTION_HTTPS_MEM_KEY, key_pem,
-                                      MHD_OPTION_HTTPS_MEM_CERT, cert_pem,
+                                      MHD_OPTION_HTTPS_MEM_KEY, tls_key_pem,
+                                      MHD_OPTION_HTTPS_MEM_CERT, tls_cert_pem,
                                       MHD_OPTION_END);
     } else {
         LOG_WARN("TLS cert/key not configured, running plain HTTP (INSECURE!)");
@@ -630,7 +711,7 @@ int api_start(void) {
                                       MHD_OPTION_NOTIFY_COMPLETED, request_completed, NULL,
                                       MHD_OPTION_END);
     }
-    /* Don't free cert_pem/key_pem - MHD needs them for the lifetime of the daemon */
+    /* Don't free tls_cert_pem/tls_key_pem - MHD needs them for the lifetime of the daemon */
 
     if (!api_daemon) {
         LOG_ERROR("Failed to start MHD daemon on port %d", g_config.api_listen_port);
@@ -638,7 +719,7 @@ int api_start(void) {
     }
     LOG_INFO("API server listening on %s:%d%s",
              g_config.api_listen_addr, g_config.api_listen_port,
-             (cert_pem && key_pem) ? " (TLS)" : " (plain HTTP)");
+             (tls_cert_pem && tls_key_pem) ? " (TLS)" : " (plain HTTP)");
     return 0;
 }
 
@@ -646,5 +727,14 @@ void api_stop(void) {
     if (api_daemon) {
         MHD_stop_daemon(api_daemon);
         api_daemon = NULL;
+    }
+    if (tls_key_pem) {
+        sodium_memzero(tls_key_pem, strlen(tls_key_pem));
+        free(tls_key_pem);
+        tls_key_pem = NULL;
+    }
+    if (tls_cert_pem) {
+        free(tls_cert_pem);
+        tls_cert_pem = NULL;
     }
 }

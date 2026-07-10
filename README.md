@@ -50,9 +50,9 @@ docker compose up -d --build
 
 **添加或重置用户密码：**
 ```bash
-docker exec -it vpn-authd vpn-add-user /var/lib/vpn-authd/accounts.db <用户名> <密码>
+docker exec -it vpn-authd vpn-add-user <用户名>
 ```
-*示例：`docker exec -it vpn-authd vpn-add-user /var/lib/vpn-authd/accounts.db alice mypassword123`*
+*示例：`docker exec -it vpn-authd vpn-add-user alice` （执行后会提示输入密码）*
 
 ---
 
