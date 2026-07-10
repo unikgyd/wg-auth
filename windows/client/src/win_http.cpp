@@ -29,8 +29,8 @@ bool PostJson(const std::string& url_in, const std::string& json_body, std::stri
     ZeroMemory(&urlComp, sizeof(urlComp));
     urlComp.dwStructSize = sizeof(urlComp);
     
-    std::vector<wchar_t> hostName(INTERNET_MAX_HOST_NAME_LENGTH);
-    std::vector<wchar_t> urlPath(INTERNET_MAX_URL_LENGTH);
+    std::vector<wchar_t> hostName(256);
+    std::vector<wchar_t> urlPath(2048);
     
     urlComp.lpszHostName = hostName.data();
     urlComp.dwHostNameLength = hostName.size();

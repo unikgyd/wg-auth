@@ -227,13 +227,13 @@ EXPORT int CALLING_CONV WgLogin(const char* username, const char* password, cons
     // Parse config (null-safe)
     const char* s_token = SafeGetString(resp, "session_token");
     const char* s_priv = SafeGetString(resp, "client_private_key");
-    const char* s_addr = SafeGetString(resp, "client_address");
+    const char* s_client_addr = SafeGetString(resp, "client_address");
     const char* s_srv_pub = SafeGetString(resp, "server_public_key");
     const char* s_psk = SafeGetString(resp, "preshared_key");
     const char* s_endpoint = SafeGetString(resp, "endpoint");
     const char* s_allowed = SafeGetString(resp, "allowed_ips");
 
-    if (!s_token || !s_priv || !s_addr || !s_srv_pub || !s_psk || !s_endpoint || !s_allowed) {
+    if (!s_token || !s_priv || !s_client_addr || !s_srv_pub || !s_psk || !s_endpoint || !s_allowed) {
         cJSON_Delete(resp);
         SetStatus("Invalid server response (missing fields)");
         return -2;
@@ -241,7 +241,7 @@ EXPORT int CALLING_CONV WgLogin(const char* username, const char* password, cons
 
     std::string token = s_token;
     std::string priv = s_priv;
-    std::string addr = s_addr;
+    std::string addr = s_client_addr;
     std::string srv_pub = s_srv_pub;
     std::string psk = s_psk;
     std::string endpoint = s_endpoint;
