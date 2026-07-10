@@ -19,10 +19,12 @@ static int exec_sql(const char *sql) {
 }
 
 int db_init(const char *db_path) {
-    if (sqlite3_open(db_path, &db) != SQLITE_OK) {
+    if (sqlite3_open_v2(db_path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, NULL) != SQLITE_OK) {
         LOG_ERROR("Cannot open database: %s", sqlite3_errmsg(db));
         return -1;
     }
+
+    sqlite3_exec(db, "PRAGMA journal_mode=WAL;", NULL, NULL, NULL);
 
     const char *sql_accounts = 
         "CREATE TABLE IF NOT EXISTS accounts ("

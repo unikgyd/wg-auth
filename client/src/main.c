@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
+#include <sys/stat.h>
 #include <pthread.h>
 #include <time.h>
 
@@ -22,6 +23,9 @@ static void handle_sigint(int sig) {
 static void save_token(const char *token) {
     FILE *f = fopen(TOKEN_FILE, "w");
     if (f) {
+#ifndef _WIN32
+        chmod(TOKEN_FILE, 0600);
+#endif
         fprintf(f, "%s", token);
         fclose(f);
     }
@@ -84,12 +88,15 @@ int main(int argc, char **argv) {
 
     const char *cmd = argv[1];
     const char *server_url = "https://127.0.0.1:8443";
-    int insecure = 1; // Default to insecure for local testing
+    int insecure = 0; // Default to secure; use --insecure to override
     
-    // Simple arg parsing for server url
+    // Simple arg parsing for server url and insecure flag
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--server") == 0 && i + 1 < argc) {
             server_url = argv[i+1];
+        }
+        if (strcmp(argv[i], "--insecure") == 0) {
+            insecure = 1;
         }
     }
 

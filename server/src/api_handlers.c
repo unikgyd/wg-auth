@@ -146,6 +146,8 @@ static enum MHD_Result send_json_response(struct MHD_Connection *connection,
     struct MHD_Response *response = MHD_create_response_from_buffer(
         strlen(resp_str), (void *)resp_str, MHD_RESPMEM_MUST_FREE);
     MHD_add_response_header(response, "Content-Type", "application/json");
+    MHD_add_response_header(response, "Cache-Control", "no-store");
+    MHD_add_response_header(response, "X-Content-Type-Options", "nosniff");
     enum MHD_Result ret = MHD_queue_response(connection, status_code, response);
     MHD_destroy_response(response);
     return ret;
@@ -191,11 +193,12 @@ static enum MHD_Result handle_login(struct MHD_Connection *connection,
     }
 
     if (acc.disabled) {
+        LOG_WARN("Login attempt for disabled account: %s", username);
         cJSON_Delete(json);
         record_login_failure(client_ip);
         cJSON *err = cJSON_CreateObject();
-        cJSON_AddStringToObject(err, "error", "Account disabled");
-        enum MHD_Result ret = send_json_response(connection, err, MHD_HTTP_FORBIDDEN);
+        cJSON_AddStringToObject(err, "error", "Invalid credentials");
+        enum MHD_Result ret = send_json_response(connection, err, MHD_HTTP_UNAUTHORIZED);
         cJSON_Delete(err);
         return ret;
     }
@@ -289,6 +292,16 @@ static enum MHD_Result handle_login(struct MHD_Connection *connection,
     sodium_memzero(psk_b64, sizeof(psk_b64));
 
     cJSON_Delete(json);
+
+    // Zero sensitive key material from cJSON heap copies before freeing
+    cJSON *item;
+    item = cJSON_GetObjectItem(resp, "client_private_key");
+    if (item && item->valuestring) sodium_memzero(item->valuestring, strlen(item->valuestring));
+    item = cJSON_GetObjectItem(resp, "preshared_key");
+    if (item && item->valuestring) sodium_memzero(item->valuestring, strlen(item->valuestring));
+    item = cJSON_GetObjectItem(resp, "session_token");
+    if (item && item->valuestring) sodium_memzero(item->valuestring, strlen(item->valuestring));
+
     cJSON_Delete(resp);
 
     return ret;
@@ -332,6 +345,15 @@ static enum MHD_Result handle_logout(struct MHD_Connection *connection,
         cJSON *err = cJSON_CreateObject();
         cJSON_AddStringToObject(err, "error", "Session already revoked");
         enum MHD_Result ret = send_json_response(connection, err, MHD_HTTP_CONFLICT);
+        cJSON_Delete(err);
+        return ret;
+    }
+
+    if (sess.expires_at < time(NULL)) {
+        cJSON_Delete(json);
+        cJSON *err = cJSON_CreateObject();
+        cJSON_AddStringToObject(err, "error", "Session expired");
+        enum MHD_Result ret = send_json_response(connection, err, MHD_HTTP_UNAUTHORIZED);
         cJSON_Delete(err);
         return ret;
     }
@@ -440,10 +462,7 @@ static enum MHD_Result handle_status(struct MHD_Connection *connection) {
     if (auth && strncmp(auth, "Bearer ", 7) == 0) {
         token = auth + 7;
     }
-    if (!token) {
-        token = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND,
-                                            "token");
-    }
+    /* Query-parameter token removed for security (S6) – use Authorization header only */
     if (!token || token[0] == '\0') {
         cJSON *err = cJSON_CreateObject();
         cJSON_AddStringToObject(err, "error", "Missing token");

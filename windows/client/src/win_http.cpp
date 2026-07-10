@@ -17,7 +17,7 @@ namespace {
 
 namespace win_http {
 
-bool PostJson(const std::string& url_in, const std::string& json_body, std::string& response_body, int& status_code) {
+bool PostJson(const std::string& url_in, const std::string& json_body, std::string& response_body, int& status_code, bool insecure) {
     status_code = 0;
     response_body.clear();
 
@@ -68,12 +68,13 @@ bool PostJson(const std::string& url_in, const std::string& json_body, std::stri
         return false;
     }
 
-    // Ignore SSL errors for testing with self-signed certs (equivalent to --insecure)
-    DWORD dwFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA |
-                    SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE |
-                    SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
-                    SECURITY_FLAG_IGNORE_CERT_DATE_INVALID;
-    WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &dwFlags, sizeof(dwFlags));
+    if (insecure) {
+        DWORD dwFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA |
+                        SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE |
+                        SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
+                        SECURITY_FLAG_IGNORE_CERT_DATE_INVALID;
+        WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &dwFlags, sizeof(dwFlags));
+    }
 
     LPCWSTR header = L"Content-Type: application/json\r\n";
     BOOL bResults = WinHttpSendRequest(hRequest,

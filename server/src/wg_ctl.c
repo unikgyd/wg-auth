@@ -6,8 +6,22 @@
 #include <string.h>
 #include <ctype.h>
 #include <arpa/inet.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 /* --------------- helpers --------------- */
+
+static int run_cmd(const char *prog, char *const argv[]) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        execvp(prog, argv);
+        _exit(127);
+    }
+    int status;
+    waitpid(pid, &status, 0);
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
 
 static char *trim(char *s) {
     while (*s && isspace((unsigned char)*s)) s++;
@@ -194,14 +208,21 @@ int wgctl_load_static_config(const char *ifname, const char *conf_path) {
     }
 
     if (interface_address[0] != '\0') {
-        char cmd[256];
-        snprintf(cmd, sizeof(cmd), "ip addr add %s dev %s 2>/dev/null", interface_address, dev.name);
-        system(cmd);
+        // Validate interface_address contains only safe characters
+        for (const char *p = interface_address; *p; p++) {
+            if (!isdigit(*p) && *p != '.' && *p != ':' && *p != '/' && !isxdigit(*p)) {
+                LOG_ERROR("Invalid character in interface address");
+                return -1;
+            }
+        }
+        char *argv_addr[] = {"ip", "addr", "add", (char*)interface_address, "dev", (char*)dev.name, NULL};
+        run_cmd("ip", argv_addr);
     }
-    
-    char cmd_up[128];
-    snprintf(cmd_up, sizeof(cmd_up), "ip link set up dev %s 2>/dev/null", dev.name);
-    system(cmd_up);
+
+    {
+        char *argv_up[] = {"ip", "link", "set", "up", "dev", (char*)dev.name, NULL};
+        run_cmd("ip", argv_up);
+    }
 
     LOG_INFO("wgctl_load_static_config: applied %s via netlink", conf_path);
 

@@ -30,6 +30,11 @@ static int parse_cidr(const char *cidr, uint32_t *start, uint32_t *end) {
         *slash = '\0';
         prefix = atoi(slash + 1);
     }
+
+    if (prefix < 1 || prefix > 30) {
+        LOG_ERROR("CIDR prefix must be between 1 and 30");
+        return -1;
+    }
     
     struct in_addr addr;
     if (inet_pton(AF_INET, ip_str, &addr) != 1) return -1;
@@ -61,6 +66,10 @@ int ip_pool_init(const char *cidr, const char *exclude) {
     num_ips = pool_end - pool_start + 1;
     if (num_ips <= 2) {
         LOG_ERROR("IP pool too small");
+        return -1;
+    }
+    if (num_ips == 0 || num_ips > 1048576) {  // Max 1M addresses
+        LOG_ERROR("IP pool size out of range: %u", num_ips);
         return -1;
     }
     

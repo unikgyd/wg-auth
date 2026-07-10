@@ -39,6 +39,13 @@ EXPORT int CALLING_CONV WgLogout(void);
  */
 EXPORT int CALLING_CONV WgGetStatus(char* out_status, int max_len);
 
+/**
+ * @brief Set insecure mode (skip TLS certificate validation).
+ * 
+ * @param insecure Non-zero to enable insecure mode, 0 for secure (default).
+ */
+EXPORT void CALLING_CONV WgSetInsecure(int insecure);
+
 #ifdef __cplusplus
 }
 #endif

@@ -14,11 +14,19 @@
 
 static std::string g_server_url;
 static std::string g_session_token;
+static std::atomic<bool> g_insecure(false);
 static std::atomic<bool> g_is_running(false);
 static std::atomic<bool> g_is_connected(false);
 static std::thread g_renew_thread;
 static std::mutex g_status_mutex;
 static std::string g_status = "Disconnected";
+
+static void SecureClearString(std::string& s) {
+    if (!s.empty()) {
+        SecureZeroMemory(&s[0], s.size());
+    }
+    s.clear();
+}
 
 static void SetStatus(const std::string& status) {
     std::lock_guard<std::mutex> lock(g_status_mutex);
@@ -37,8 +45,15 @@ static std::string GetTempConfPath() {
 }
 
 static bool InstallTunnel(const std::string& conf_path) {
-    // Call wireguard.exe /installtunnelservice wg-vpn.conf
-    std::string cmd = "wireguard.exe /installtunnelservice \"" + conf_path + "\"";
+    // Use absolute path for wireguard.exe to prevent PATH hijacking
+    char exePath[MAX_PATH];
+    GetModuleFileNameA(NULL, exePath, MAX_PATH);
+    std::string exeDir = exePath;
+    size_t pos = exeDir.find_last_of("\\/");
+    if (pos != std::string::npos) exeDir = exeDir.substr(0, pos + 1);
+    std::string wgPath = exeDir + "wireguard.exe";
+    std::string wgExe = "\"" + wgPath + "\"";
+    std::string cmd = wgExe + " /installtunnelservice \"" + conf_path + "\"";
     
     STARTUPINFOA si;
     PROCESS_INFORMATION pi;
@@ -49,7 +64,7 @@ static bool InstallTunnel(const std::string& conf_path) {
     si.wShowWindow = SW_HIDE;
     ZeroMemory(&pi, sizeof(pi));
 
-    if (CreateProcessA(NULL, (LPSTR)cmd.c_str(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+    if (CreateProcessA(wgPath.c_str(), (LPSTR)cmd.c_str(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
         WaitForSingleObject(pi.hProcess, 5000); // Wait up to 5s
         DWORD exitCode;
         GetExitCodeProcess(pi.hProcess, &exitCode);
@@ -61,8 +76,15 @@ static bool InstallTunnel(const std::string& conf_path) {
 }
 
 static void UninstallTunnel() {
-    // Call wireguard.exe /uninstalltunnelservice wg-vpn
-    std::string cmd = "wireguard.exe /uninstalltunnelservice wg-vpn";
+    // Use absolute path for wireguard.exe to prevent PATH hijacking
+    char exePath[MAX_PATH];
+    GetModuleFileNameA(NULL, exePath, MAX_PATH);
+    std::string exeDir = exePath;
+    size_t pos = exeDir.find_last_of("\\/");
+    if (pos != std::string::npos) exeDir = exeDir.substr(0, pos + 1);
+    std::string wgPath = exeDir + "wireguard.exe";
+    std::string wgExe = "\"" + wgPath + "\"";
+    std::string cmd = wgExe + " /uninstalltunnelservice wg-vpn";
     
     STARTUPINFOA si;
     PROCESS_INFORMATION pi;
@@ -72,7 +94,7 @@ static void UninstallTunnel() {
     si.wShowWindow = SW_HIDE;
     ZeroMemory(&pi, sizeof(pi));
 
-    if (CreateProcessA(NULL, (LPSTR)cmd.c_str(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+    if (CreateProcessA(wgPath.c_str(), (LPSTR)cmd.c_str(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
         WaitForSingleObject(pi.hProcess, 3000);
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
@@ -97,7 +119,7 @@ static void RenewThreadFunc() {
 
         std::string resp;
         int status;
-        if (win_http::PostJson(g_server_url + "/renew", req_str, resp, status)) {
+        if (win_http::PostJson(g_server_url + "/renew", req_str, resp, status, g_insecure.load())) {
             if (status != 200) {
                 SetStatus("Renew Failed");
                 // In a real app, you might want to retry or disconnect.
@@ -142,7 +164,7 @@ EXPORT int CALLING_CONV WgLogin(const char* username, const char* password, cons
         g_server_url.pop_back();
     }
 
-    if (!win_http::PostJson(g_server_url + "/login", req_str, resp_str, status_code)) {
+    if (!win_http::PostJson(g_server_url + "/login", req_str, resp_str, status_code, g_insecure.load())) {
         free(req_str);
         SetStatus("Network Error");
         return -1;
@@ -205,6 +227,11 @@ EXPORT int CALLING_CONV WgLogin(const char* username, const char* password, cons
     out << "PersistentKeepalive = 25\n";
     out.close();
 
+    // Securely zero sensitive key material
+    SecureClearString(priv);
+    SecureClearString(psk);
+    SecureClearString(resp_str);
+
     // Call wireguard.exe
     if (!InstallTunnel(conf_path)) {
         SetStatus("WireGuard Install Failed");
@@ -243,7 +270,7 @@ EXPORT int CALLING_CONV WgLogout(void) {
 
     std::string resp;
     int status;
-    win_http::PostJson(g_server_url + "/logout", req_str, resp, status);
+    win_http::PostJson(g_server_url + "/logout", req_str, resp, status, g_insecure.load());
     free(req_str);
 
     // Uninstall tunnel
@@ -253,7 +280,7 @@ EXPORT int CALLING_CONV WgLogout(void) {
     DeleteFileA(GetAbsoluteConfPath().c_str());
 
     g_is_connected = false;
-    g_session_token.clear();
+    SecureClearString(g_session_token);
     SetStatus("Disconnected");
 
     return 0;
@@ -265,6 +292,10 @@ EXPORT int CALLING_CONV WgGetStatus(char* out_status, int max_len) {
     strncpy(out_status, status.c_str(), max_len - 1);
     out_status[max_len - 1] = '\0';
     return 0;
+}
+
+EXPORT void CALLING_CONV WgSetInsecure(int insecure) {
+    g_insecure = (insecure != 0);
 }
 
 } // extern "C"

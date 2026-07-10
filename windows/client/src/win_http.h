@@ -14,7 +14,7 @@ namespace win_http {
      * @return true on network success (even if status_code is 4xx/5xx).
      * @return false on network error.
      */
-    bool PostJson(const std::string& url, const std::string& json_body, std::string& response_body, int& status_code);
+    bool PostJson(const std::string& url, const std::string& json_body, std::string& response_body, int& status_code, bool insecure = false);
 }
 
 #endif // WIN_HTTP_H

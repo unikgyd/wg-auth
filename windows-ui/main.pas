@@ -55,11 +55,13 @@ type
   TWgLogin = function(username, password, server_url: PAnsiChar): Integer; stdcall;
   TWgLogout = function(): Integer; stdcall;
   TWgGetStatus = function(out_status: PAnsiChar; max_len: Integer): Integer; stdcall;
+  TWgSetInsecure = procedure(insecure: Integer); stdcall;
 
 var
   WgLogin: TWgLogin = nil;
   WgLogout: TWgLogout = nil;
   WgGetStatus: TWgGetStatus = nil;
+  WgSetInsecure: TWgSetInsecure = nil;
 
 {$R *.lfm}
 {$R resources.rc}
@@ -89,13 +91,23 @@ end;
 procedure TForm1.ExtractResources;
 var
   ResStream: TResourceStream;
+  GUID: TGUID;
+  GUIDStr: String;
 begin
-  FTempDir := GetTempDir(False) + 'AuthWG\';
-  if not DirectoryExists(FTempDir) then
-    CreateDir(FTempDir);
+  // Use a random unique directory to prevent DLL planting attacks
+  CreateGUID(GUID);
+  GUIDStr := GUIDToString(GUID);
+  // Remove braces from GUID string
+  GUIDStr := StringReplace(GUIDStr, '{', '', [rfReplaceAll]);
+  GUIDStr := StringReplace(GUIDStr, '}', '', [rfReplaceAll]);
+  FTempDir := GetTempDir(False) + 'AuthWG_' + GUIDStr + PathDelim;
+  ForceDirectories(FTempDir);
 
-  // Extract authwg.dll
+  // Extract authwg.dll - always overwrite
   try
+    // Delete old file if it exists
+    if FileExists(FTempDir + 'authwg.dll') then
+      DeleteFile(FTempDir + 'authwg.dll');
     ResStream := TResourceStream.Create(HInstance, 'AUTHWG_DLL', RT_RCDATA);
     try
       ResStream.SaveToFile(FTempDir + 'authwg.dll');
@@ -103,11 +115,18 @@ begin
       ResStream.Free;
     end;
   except
-    // Might already exist and be in use
+    on E: Exception do
+    begin
+      ShowMessage('Failed to extract authwg.dll: ' + E.Message);
+      Application.Terminate;
+      Exit;
+    end;
   end;
 
-  // Extract wireguard.exe
+  // Extract wireguard.exe - always overwrite
   try
+    if FileExists(FTempDir + 'wireguard.exe') then
+      DeleteFile(FTempDir + 'wireguard.exe');
     ResStream := TResourceStream.Create(HInstance, 'WIREGUARD_EXE', RT_RCDATA);
     try
       ResStream.SaveToFile(FTempDir + 'wireguard.exe');
@@ -115,6 +134,12 @@ begin
       ResStream.Free;
     end;
   except
+    on E: Exception do
+    begin
+      ShowMessage('Failed to extract wireguard.exe: ' + E.Message);
+      Application.Terminate;
+      Exit;
+    end;
   end;
 end;
 
@@ -126,6 +151,7 @@ begin
     Pointer(WgLogin) := GetProcAddress(FDLLHandle, 'WgLogin');
     Pointer(WgLogout) := GetProcAddress(FDLLHandle, 'WgLogout');
     Pointer(WgGetStatus) := GetProcAddress(FDLLHandle, 'WgGetStatus');
+    Pointer(WgSetInsecure) := GetProcAddress(FDLLHandle, 'WgSetInsecure');
   end
   else
   begin
@@ -142,7 +168,7 @@ begin
   try
     edtServer.Text := Ini.ReadString('Auth', 'Server', 'https://198.51.100.1:8443');
     edtUser.Text := Ini.ReadString('Auth', 'Username', '');
-    edtPass.Text := Ini.ReadString('Auth', 'Password', '');
+
   finally
     Ini.Free;
   end;
@@ -156,7 +182,7 @@ begin
   try
     Ini.WriteString('Auth', 'Server', edtServer.Text);
     Ini.WriteString('Auth', 'Username', edtUser.Text);
-    Ini.WriteString('Auth', 'Password', edtPass.Text);
+
   finally
     Ini.Free;
   end;
@@ -182,6 +208,13 @@ procedure TForm1.FormDestroy(Sender: TObject);
 begin
   if FDLLHandle <> 0 then
     UnloadLibrary(FDLLHandle);
+  // Clean up temp directory
+  if FTempDir <> '' then
+  begin
+    DeleteFile(FTempDir + 'authwg.dll');
+    DeleteFile(FTempDir + 'wireguard.exe');
+    RemoveDir(FTempDir);
+  end;
 end;
 
 procedure TForm1.UpdateStatus;
